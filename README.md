@@ -3,8 +3,11 @@
 Pensa no Beamer como um GPS para o seu app.
 
 📍 Location → É como o endereço que você coloca no GPS (o path da rota).
+
 🚗 BeamerDelegate → É o motorista que decide qual caminho seguir para chegar no endereço.
+
 🏠 BeamLocation → É o mapa com todos os lugares possíveis que o motorista conhece (rotas e páginas do app).
+
 📢 notifyListeners() → É como o motorista avisar para todo mundo no carro: "Mudamos de rota, olhem pela janela!", e aí a tela se atualiza.
 
 No meu código:
