@@ -34,29 +34,34 @@ class _MyAppState extends State<MyApp> {
   late BeamerDelegate routerDelegate;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     final authState = context.read<AuthState>();
 
     routerDelegate = BeamerDelegate(
       locationBuilder: (routeInformation, _) => AppLocation(routeInformation),
       guards: [
         BeamGuard(
-          pathPatterns: ['/pedidos', '/item'],
+          pathPatterns: ['/', '/pedidos', '/item', '/item/*'],
           check: (context, location) => authState.isLoggedIn,
           beamToNamed: (_, __) => '/login',
         ),
       ],
     );
+    ;
 
-    authState.addListener(routerDelegate.update);
+    if (mounted) {
+      authState.addListener(() {
+        routerDelegate.update(rebuild: false);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Beamer Entrega 2',
+      title: 'Beamer Entrega 2 Corrigido',
       routeInformationParser: BeamerParser(),
       routerDelegate: routerDelegate,
     );
@@ -79,19 +84,17 @@ class AppLocation extends BeamLocation<BeamState> {
 
   @override
   List<BeamPage> buildPages(BuildContext context, BeamState state) {
-    final uri = Uri.parse(state.uri.toString());
+    final uri = state.uri;
 
     final pages = <BeamPage>[
-      // Home -> fadeIn
       BeamPage(
         key: const ValueKey('home'),
         title: 'Home',
-        type: BeamPageType.fadeTransition,
+        type: BeamPageType.slideRightTransition,
         child: const HomeScreen(),
       ),
     ];
 
-    // Login -> slideLeft
     if (uri.path == '/login') {
       pages.add(
         BeamPage(
@@ -101,51 +104,42 @@ class AppLocation extends BeamLocation<BeamState> {
           child: const LoginScreen(),
         ),
       );
-    }
-    // Pedidos -> slideRight
-    else if (uri.path == '/pedidos') {
+    } else if (uri.path == '/pedidos') {
       pages.add(
         BeamPage(
           key: const ValueKey('pedidos'),
           title: 'Pedidos',
-          type: BeamPageType.slideRightTransition,
+          type: BeamPageType.noTransition,
           child: const PedidosScreen(),
         ),
       );
-    }
-    // Item list / item details / item deep details
-    else if (uri.pathSegments.contains('item')) {
-      // Item list -> slideUp (mapped to slideTopTransition)
+    } else if (uri.pathSegments.contains('item')) {
       pages.add(
         BeamPage(
           key: const ValueKey('item'),
           title: 'Itens',
-          type: BeamPageType.slideTopTransition,
+          type: BeamPageType.noTransition,
           child: const ItemListScreen(),
         ),
       );
 
-      // If there's an itemId parameter, add details page -> slide (generic)
       if (state.pathParameters.containsKey('itemId')) {
         final itemId = state.pathParameters['itemId']!;
-
-        // Item details -> slideDown (approximated with slideTransition)
         pages.add(
           BeamPage(
             key: ValueKey('item-$itemId'),
             title: 'Detalhes do Item',
-            type: BeamPageType.slideTransition,
+            type: BeamPageType.slideRightTransition,
             child: ItemDetailsScreen(itemId: itemId),
           ),
         );
 
-        // Item deep details -> scale
-        if (uri.path.endsWith('/detalhes')) {
+        if (uri.pathSegments.contains('detalhes')) {
           pages.add(
             BeamPage(
               key: ValueKey('item-$itemId-detalhes'),
               title: 'Detalhes Avançados',
-              type: BeamPageType.scaleTransition,
+              type: BeamPageType.slideRightTransition,
               child: ItemDeepDetailsScreen(itemId: itemId),
             ),
           );
@@ -157,27 +151,8 @@ class AppLocation extends BeamLocation<BeamState> {
   }
 }
 
-class MenuGroup {
-  MenuGroup({
-    required this.header,
-    required this.items,
-    this.isExpanded = false,
-  });
-
-  final String header;
-  final List<MenuItem> items;
-  bool isExpanded;
-}
-
-class MenuItem {
-  MenuItem({required this.label, required this.route});
-
-  final String label;
-  final String route;
-}
-
-// ---------------- Responsive Scaffold ----------------
-class ResponsiveScaffold extends StatefulWidget {
+// ---------------- Responsive Scaffold (VERSÃO CORRIGIDA) ----------------
+class ResponsiveScaffold extends StatelessWidget {
   final String title;
   final Widget child;
 
@@ -188,73 +163,80 @@ class ResponsiveScaffold extends StatefulWidget {
   });
 
   @override
-  State<ResponsiveScaffold> createState() => _ResponsiveScaffoldState();
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 600;
+
+        if (isDesktop) {
+          // Layout para Desktop/Web com menu fixo à esquerda
+          return Scaffold(
+            body: Row(
+              children: [
+                const SizedBox(
+                  width: 240,
+                  child: Drawer(
+                    child: _AppDrawerContent(), // Usando o novo widget
+                  ),
+                ),
+                Expanded(
+                  child: Scaffold(
+                    appBar: AppBar(title: Text(title)),
+                    body: child,
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          // Layout para Mobile com Drawer que abre e fecha
+          return Scaffold(
+            appBar: AppBar(title: Text(title)),
+            drawer: const Drawer(
+              child: _AppDrawerContent(), // Usando o novo widget
+            ),
+            body: child,
+          );
+        }
+      },
+    );
+  }
 }
 
-class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
-  // Lista de grupos com itens
-  final List<MenuGroup> _groups = [
-    MenuGroup(
-      header: 'Principal',
-      items: [
-        MenuItem(label: 'Home', route: '/'),
-        MenuItem(label: 'Pedidos', route: '/pedidos'),
-      ],
-    ),
-    MenuGroup(
-      header: 'Gestão',
-      items: [MenuItem(label: 'Itens', route: '/item')],
-    ),
-  ];
+// NOVO WIDGET para o conteúdo do Drawer, que resolve o problema de contexto
+class _AppDrawerContent extends StatelessWidget {
+  const _AppDrawerContent();
 
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthState>();
 
-    final drawerContent = ListView(
+    return ListView(
+      padding: EdgeInsets.zero,
       children: [
         const DrawerHeader(
           decoration: BoxDecoration(color: Colors.blue),
-          child: Text("Menu", style: TextStyle(color: Colors.white)),
+          child: Text(
+            "Menu Principal",
+            style: TextStyle(color: Colors.white, fontSize: 24),
+          ),
         ),
-
-        // ExpansionPanelList baseado nos grupos
-        ExpansionPanelList(
-          expansionCallback: (int index, bool isExpanded) {
-            setState(() {
-              _groups[index].isExpanded = !isExpanded;
-            });
-          },
-          children:
-              _groups.map<ExpansionPanel>((MenuGroup group) {
-                return ExpansionPanel(
-                  canTapOnHeader: true,
-                  headerBuilder: (context, isExpanded) {
-                    return ListTile(
-                      leading: const Icon(Icons.folder),
-                      title: Text(group.header),
-                    );
-                  },
-                  body: Column(
-                    children:
-                        group.items.map((item) {
-                          return ListTile(
-                            leading: const Icon(Icons.arrow_right),
-                            title: Text(item.label),
-                            onTap: () {
-                              _navigateTo(context, item.route);
-                            },
-                          );
-                        }).toList(),
-                  ),
-                  isExpanded: group.isExpanded,
-                );
-              }).toList(),
+        ListTile(
+          leading: const Icon(Icons.home),
+          title: const Text('Home'),
+          onTap: () => _navigateTo(context, '/'),
         ),
-
+        ListTile(
+          leading: const Icon(Icons.shopping_cart),
+          title: const Text('Pedidos'),
+          onTap: () => _navigateTo(context, '/pedidos'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.list_alt),
+          title: const Text('Itens'),
+          onTap: () => _navigateTo(context, '/item'),
+        ),
         const Divider(),
-
-        // Logout fora dos grupos
         if (authState.isLoggedIn)
           ListTile(
             leading: const Icon(Icons.logout),
@@ -263,43 +245,21 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               authState.logout();
               _navigateTo(context, '/');
             },
+          )
+        else
+          ListTile(
+            leading: const Icon(Icons.login),
+            title: const Text('Login'),
+            onTap: () => _navigateTo(context, '/login'),
           ),
       ],
     );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isDesktop = constraints.maxWidth >= 600;
-
-        if (isDesktop) {
-          return Scaffold(
-            body: Row(
-              children: [
-                SizedBox(width: 240, child: drawerContent),
-                Expanded(
-                  child: Column(
-                    children: [
-                      AppBar(title: Text(widget.title)),
-                      Expanded(child: widget.child),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        } else {
-          return Scaffold(
-            appBar: AppBar(title: Text(widget.title)),
-            drawer: Drawer(child: drawerContent),
-            body: widget.child,
-          );
-        }
-      },
-    );
   }
 
+  // Função agora é um método privado do _AppDrawerContent
   void _navigateTo(BuildContext context, String route) {
-    // Fecha o drawer se estiver aberto (mobile)
+    // Agora o `context` está correto e o Scaffold será encontrado.
+    // Usamos Navigator.pop(context) para fechar o Drawer, que é a forma padrão.
     if (Scaffold.of(context).isDrawerOpen) {
       Navigator.of(context).pop();
     }
@@ -307,19 +267,15 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   }
 }
 
-// ---------------- Screens ----------------
+// ---------------- Screens (Sem alterações) ----------------
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return ResponsiveScaffold(
+    return const ResponsiveScaffold(
       title: 'Home',
-      child: _buttonColumn(context, [
-        ['Ir para Pedidos (Protegido)', '/pedidos'],
-        ['Ir para Itens (Protegido)', '/item'],
-        ['Ir para Login', '/login'],
-      ]),
+      child: Center(child: Text('Bem-vindo à tela inicial!')),
     );
   }
 }
@@ -331,17 +287,14 @@ class LoginScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final authState = context.read<AuthState>();
 
-    return ResponsiveScaffold(
-      title: 'Login',
-      child: Center(
-        child: ElevatedButton.icon(
-          icon: const Icon(Icons.login),
-          label: const Text('Fazer Login'),
-          onPressed: () {
-            authState.login();
-            Beamer.of(context).beamToNamed('/');
-          },
-        ),
+    return Center(
+      child: ElevatedButton.icon(
+        icon: const Icon(Icons.login),
+        label: const Text('Fazer Login'),
+        onPressed: () {
+          authState.login();
+          Beamer.of(context).beamToNamed('/');
+        },
       ),
     );
   }
@@ -352,12 +305,9 @@ class PedidosScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ResponsiveScaffold(
+    return const ResponsiveScaffold(
       title: 'Pedidos',
-      child: _buttonColumn(context, [
-        ['Voltar para Home', '/'],
-        ['Ir para Itens', '/item'],
-      ]),
+      child: Center(child: Text('Aqui você vê a lista de pedidos.')),
     );
   }
 }
@@ -371,25 +321,16 @@ class ItemListScreen extends StatelessWidget {
 
     return ResponsiveScaffold(
       title: 'Itens',
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ...items.map(
-              (id) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: ElevatedButton(
-                  onPressed: () => Beamer.of(context).beamToNamed('/item/$id'),
-                  child: Text('Ver detalhes de $id'),
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Beamer.of(context).beamToNamed('/'),
-              child: const Text('Voltar para Home'),
-            ),
-          ],
-        ),
+      child: ListView.builder(
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          final id = items[index];
+          return ListTile(
+            title: Text('Ver detalhes de $id'),
+            onTap: () => Beamer.of(context).beamToNamed('/item/$id'),
+            trailing: const Icon(Icons.arrow_forward_ios),
+          );
+        },
       ),
     );
   }
@@ -401,9 +342,9 @@ class ItemDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ResponsiveScaffold(
-      title: 'Detalhes do Item',
-      child: Center(
+    return Scaffold(
+      appBar: AppBar(title: Text('Detalhes: $itemId')),
+      body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -414,10 +355,6 @@ class ItemDetailsScreen extends StatelessWidget {
                   () =>
                       Beamer.of(context).beamToNamed('/item/$itemId/detalhes'),
               child: const Text('Ver detalhes avançados'),
-            ),
-            ElevatedButton(
-              onPressed: () => Beamer.of(context).beamToNamed('/item'),
-              child: const Text('Voltar para lista de itens'),
             ),
           ],
         ),
@@ -432,16 +369,16 @@ class ItemDeepDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ResponsiveScaffold(
-      title: 'Detalhes Avançados',
-      child: Center(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Detalhes Avançados')),
+      body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('Informações avançadas sobre o item: $itemId'),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => Beamer.of(context).beamToNamed('/item/$itemId'),
+              onPressed: () => Beamer.of(context).beamBack(),
               child: const Text('Voltar para detalhes do item'),
             ),
           ],
@@ -449,25 +386,4 @@ class ItemDeepDetailsScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------- Widgets Auxiliares ----------------
-Widget _buttonColumn(BuildContext context, List<List<String>> buttons) {
-  return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children:
-          buttons
-              .map(
-                (b) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: ElevatedButton(
-                    onPressed: () => Beamer.of(context).beamToNamed(b[1]),
-                    child: Text(b[0]),
-                  ),
-                ),
-              )
-              .toList(),
-    ),
-  );
 }
