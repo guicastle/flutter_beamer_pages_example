@@ -39,12 +39,16 @@ class _MyAppState extends State<MyApp> {
     final authState = context.read<AuthState>();
 
     routerDelegate = BeamerDelegate(
+      initialPath: '/splash',
       locationBuilder: (routeInformation, _) => AppLocation(routeInformation),
       guards: [
         BeamGuard(
-          pathPatterns: ['/', '/pedidos', '/item', '/item/*'],
+          // pathPatterns: ['/', '/pedidos', '/item', '/item/*'],
+          pathPatterns: ['/splash', '/login'],
+          guardNonMatching: true,
           check: (context, location) => authState.isLoggedIn,
           beamToNamed: (_, __) => '/login',
+          onCheckFailed: (_, __) => '/not-found',
         ),
       ],
     );
@@ -72,9 +76,12 @@ class _MyAppState extends State<MyApp> {
 class AppLocation extends BeamLocation<BeamState> {
   AppLocation(RouteInformation super.routeInformation);
 
+  String lastUrl = "";
+
   @override
   List<String> get pathPatterns => [
     '/',
+    '/splash',
     '/login',
     '/pedidos',
     '/item',
@@ -86,14 +93,30 @@ class AppLocation extends BeamLocation<BeamState> {
   List<BeamPage> buildPages(BuildContext context, BeamState state) {
     final uri = state.uri;
 
-    final pages = <BeamPage>[
-      BeamPage(
-        key: const ValueKey('home'),
-        title: 'Home',
-        type: BeamPageType.slideRightTransition,
-        child: const HomeScreen(),
-      ),
-    ];
+    final pages = <BeamPage>[];
+
+    if (uri.path == '/splash') {
+      pages.add(
+        BeamPage(
+          key: const ValueKey('splash'),
+          title: 'Splash',
+          type: BeamPageType.noTransition,
+          child: const SplashScreen(),
+        ),
+      );
+    } else if (uri.path == '/') {
+      pages.add(
+        BeamPage(
+          key: const ValueKey('home'),
+          title: 'Home',
+          type:
+              lastUrl == "/login"
+                  ? BeamPageType.slideRightTransition
+                  : BeamPageType.noTransition,
+          child: const HomeScreen(),
+        ),
+      );
+    }
 
     if (uri.path == '/login') {
       pages.add(
@@ -147,6 +170,17 @@ class AppLocation extends BeamLocation<BeamState> {
       }
     }
 
+    if (uri.path == '/not-found') {
+      pages.add(
+        BeamPage(
+          key: const ValueKey('not-found'),
+          title: '404',
+          child: const NotFoundScreen(),
+        ),
+      );
+    }
+
+    lastUrl = uri.path;
     return pages;
   }
 }
@@ -382,6 +416,71 @@ class ItemDeepDetailsScreen extends StatelessWidget {
               child: const Text('Voltar para detalhes do item'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+
+    Future.delayed(const Duration(seconds: 2), () {
+      final authState = context.read<AuthState>();
+
+      if (authState.isLoggedIn) {
+        Beamer.of(context).beamToNamed('/');
+      } else {
+        Beamer.of(context).beamToNamed('/login');
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(), // loading simples
+      ),
+    );
+  }
+}
+
+class NotFoundScreen extends StatelessWidget {
+  const NotFoundScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Text(
+          '404 - Página não encontrada',
+          style: TextStyle(fontSize: 20, color: Colors.red),
+        ),
+      ),
+    );
+  }
+}
+
+class AccessDeniedScreen extends StatelessWidget {
+  const AccessDeniedScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Text(
+          'Sem acesso - favor logar para continuar',
+          style: TextStyle(fontSize: 18, color: Colors.orange),
         ),
       ),
     );
