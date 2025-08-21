@@ -81,6 +81,7 @@ class AppLocation extends BeamLocation<BeamState> {
   @override
   List<String> get pathPatterns => [
     '/',
+    '/home',
     '/splash',
     '/login',
     '/pedidos',
@@ -91,61 +92,57 @@ class AppLocation extends BeamLocation<BeamState> {
 
   @override
   List<BeamPage> buildPages(BuildContext context, BeamState state) {
-    final uri = state.uri;
+    // A lógica do switch permanece a mesma, pois é limpa e eficiente.
+    // O problema estava apenas nos patterns que alimentavam o `state`.
+    final path = state.uri.path;
 
-    final pages = <BeamPage>[];
-
-    if (uri.path == '/splash') {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('splash'),
-          title: 'Splash',
-          type: BeamPageType.noTransition,
-          child: const SplashScreen(),
-        ),
-      );
-    } else if (uri.path == '/') {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('home'),
-          title: 'Home',
-          type:
-              lastUrl == "/login"
-                  ? BeamPageType.slideRightTransition
-                  : BeamPageType.noTransition,
-          child: const HomeScreen(),
-        ),
-      );
+    // Para rotas simples, podemos usar o path completo.
+    switch (path) {
+      case '/home':
+        return _homeStack;
+      case '/splash':
+        return [
+          const BeamPage(
+            key: ValueKey('splash'),
+            title: 'Splash',
+            type: BeamPageType.noTransition,
+            child: SplashScreen(),
+          ),
+        ];
+      case '/login':
+        return [
+          const BeamPage(
+            key: ValueKey('login'),
+            title: 'Login',
+            type: BeamPageType.slideLeftTransition,
+            child: LoginScreen(),
+          ),
+        ];
+      case '/pedidos':
+        return [
+          ..._homeStack,
+          const BeamPage(
+            key: ValueKey('pedidos'),
+            title: 'Pedidos',
+            type: BeamPageType.noTransition,
+            child: PedidosScreen(),
+          ),
+        ];
     }
 
-    if (uri.path == '/login') {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('login'),
-          title: 'Login',
-          type: BeamPageType.slideLeftTransition,
-          child: const LoginScreen(),
-        ),
-      );
-    } else if (uri.path == '/pedidos') {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('pedidos'),
-          title: 'Pedidos',
-          type: BeamPageType.noTransition,
-          child: const PedidosScreen(),
-        ),
-      );
-    } else if (uri.pathSegments.contains('item')) {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('item'),
+    // Para rotas complexas com parâmetros, verificamos os segmentos.
+    if (state.uri.pathSegments.contains('item')) {
+      final pages = <BeamPage>[
+        ..._homeStack,
+        const BeamPage(
+          key: ValueKey('item'),
           title: 'Itens',
           type: BeamPageType.noTransition,
-          child: const ItemListScreen(),
+          child: ItemListScreen(),
         ),
-      );
+      ];
 
+      // Com os pathPatterns corretos, o Beamer agora preenche os pathParameters.
       if (state.pathParameters.containsKey('itemId')) {
         final itemId = state.pathParameters['itemId']!;
         pages.add(
@@ -156,8 +153,7 @@ class AppLocation extends BeamLocation<BeamState> {
             child: ItemDetailsScreen(itemId: itemId),
           ),
         );
-
-        if (uri.pathSegments.contains('detalhes')) {
+        if (state.uri.pathSegments.contains('detalhes')) {
           pages.add(
             BeamPage(
               key: ValueKey('item-$itemId-detalhes'),
@@ -168,21 +164,32 @@ class AppLocation extends BeamLocation<BeamState> {
           );
         }
       }
+
+      lastUrl = state.uri.path;
+      return pages;
     }
 
-    if (uri.path == '/not-found') {
-      pages.add(
-        BeamPage(
-          key: const ValueKey('not-found'),
-          title: '404',
-          child: const NotFoundScreen(),
-        ),
-      );
-    }
-
-    lastUrl = uri.path;
-    return pages;
+    // O `default` agora funciona como esperado para qualquer rota não reconhecida.
+    return [
+      const BeamPage(
+        key: ValueKey('not-found'),
+        title: 'Página Não Encontrada',
+        child: NotFoundScreen(),
+      ),
+    ];
   }
+
+  List<BeamPage> get _homeStack => [
+    BeamPage(
+      key: const ValueKey('home'),
+      title: 'Home',
+      type:
+          lastUrl == "/login"
+              ? BeamPageType.slideRightTransition
+              : BeamPageType.noTransition,
+      child: const HomeScreen(),
+    ),
+  ];
 }
 
 // ---------------- Responsive Scaffold (VERSÃO CORRIGIDA) ----------------
@@ -258,7 +265,7 @@ class _AppDrawerContent extends StatelessWidget {
         ListTile(
           leading: const Icon(Icons.home),
           title: const Text('Home'),
-          onTap: () => _navigateTo(context, '/'),
+          onTap: () => _navigateTo(context, '/home'),
         ),
         ListTile(
           leading: const Icon(Icons.shopping_cart),
@@ -327,7 +334,7 @@ class LoginScreen extends StatelessWidget {
         label: const Text('Fazer Login'),
         onPressed: () {
           authState.login();
-          Beamer.of(context).beamToNamed('/');
+          Beamer.of(context).beamToNamed('/home');
         },
       ),
     );
@@ -438,7 +445,7 @@ class _SplashScreenState extends State<SplashScreen> {
       final authState = context.read<AuthState>();
 
       if (authState.isLoggedIn) {
-        Beamer.of(context).beamToNamed('/');
+        Beamer.of(context).beamToNamed('/home');
       } else {
         Beamer.of(context).beamToNamed('/login');
       }
@@ -460,11 +467,24 @@ class NotFoundScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Página Não Encontrada')),
       body: Center(
-        child: Text(
-          '404 - Página não encontrada',
-          style: TextStyle(fontSize: 20, color: Colors.red),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              '404',
+              style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text('Oops! A página que você procurava não existe.'),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => Beamer.of(context).beamToNamed('/home'),
+              child: const Text('Voltar para a Home'),
+            ),
+          ],
         ),
       ),
     );
