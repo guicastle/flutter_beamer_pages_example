@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:beamer/beamer.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 
 void main() {
@@ -10,15 +11,31 @@ void main() {
 
 // ---------------- AUTH STATE ----------------
 class AuthState extends ChangeNotifier {
-  bool isLoggedIn = false;
+  final _storage = const FlutterSecureStorage();
+  bool? isLoggedIn;
+  // Adicione este flag de volta. Ele é crucial.
+  bool isAuthCheckComplete = false;
 
-  void login() {
-    isLoggedIn = true;
+  Future<void> checkAuthStatus() async {
+    final token = await _storage.read(key: 'auth_token');
+    isLoggedIn = token != null;
+    // Marca a verificação como completa ANTES de notificar.
+    isAuthCheckComplete = true;
     notifyListeners();
   }
 
-  void logout() {
+  // ... resto da classe AuthState ...
+  Future<void> login() async {
+    await _storage.write(key: 'auth_token', value: 'fake_auth_token_123');
+    isLoggedIn = true;
+    isAuthCheckComplete = true; // Garante que o estado seja consistente
+    notifyListeners();
+  }
+
+  Future<void> logout() async {
+    await _storage.delete(key: 'auth_token');
     isLoggedIn = false;
+    isAuthCheckComplete = true; // Garante que o estado seja consistente
     notifyListeners();
   }
 }
@@ -33,36 +50,38 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late BeamerDelegate routerDelegate;
 
+  // late AuthState authState;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final authState = context.read<AuthState>();
+    AuthState authState = context.read<AuthState>();
 
     routerDelegate = BeamerDelegate(
       initialPath: '/splash',
       locationBuilder: (routeInformation, _) => AppLocation(routeInformation),
+      buildListener: (context, delegate) async {
+        await authState.checkAuthStatus();
+      },
       guards: [
         BeamGuard(
-          // pathPatterns: ['/', '/pedidos', '/item', '/item/*'],
           pathPatterns: ['/splash', '/login'],
           guardNonMatching: true,
-          check: (context, location) => authState.isLoggedIn,
+          check: (context, location) {
+            final authState = context.read<AuthState>();
+            return !authState.isAuthCheckComplete ||
+                (authState.isLoggedIn ?? false);
+          },
           beamToNamed: (_, __) => '/login',
-          onCheckFailed: (_, __) => '/not-found',
         ),
       ],
     );
-    ;
-
-    if (mounted) {
-      authState.addListener(() {
-        routerDelegate.update(rebuild: false);
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // context.watch<AuthState>();
+
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Beamer Entrega 2 Corrigido',
@@ -278,13 +297,20 @@ class _AppDrawerContent extends StatelessWidget {
           onTap: () => _navigateTo(context, '/item'),
         ),
         const Divider(),
-        if (authState.isLoggedIn)
+        if (authState.isLoggedIn == null)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (authState.isLoggedIn!)
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),
-            onTap: () {
-              authState.logout();
-              _navigateTo(context, '/');
+            onTap: () async {
+              await authState.logout();
+              _navigateTo(context, '/login');
             },
           )
         else
@@ -332,8 +358,8 @@ class LoginScreen extends StatelessWidget {
       child: ElevatedButton.icon(
         icon: const Icon(Icons.login),
         label: const Text('Fazer Login'),
-        onPressed: () {
-          authState.login();
+        onPressed: () async {
+          await authState.login();
           Beamer.of(context).beamToNamed('/home');
         },
       ),
@@ -440,25 +466,33 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-
-    Future.delayed(const Duration(seconds: 2), () {
-      final authState = context.read<AuthState>();
-
-      if (authState.isLoggedIn) {
-        Beamer.of(context).beamToNamed('/home');
-      } else {
-        Beamer.of(context).beamToNamed('/login');
-      }
-    });
+    // 1. Dispara a verificação inicial, mas não tenta ler o resultado aqui.
+    context.read<AuthState>().checkAuthStatus();
   }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(), // loading simples
-      ),
-    );
+    // 2. Usa context.watch() para OUVIR as mudanças do AuthState.
+    //    Isso fará o widget reconstruir quando notifyListeners() for chamado.
+    final authState = context.watch<AuthState>();
+
+    // 3. A LÓGICA DE NAVEGAÇÃO:
+    //    Verifica se a checagem JÁ TERMINOU.
+    if (authState.isAuthCheckComplete) {
+      // Usa addPostFrameCallback para navegar com segurança APÓS o build.
+      // Isso evita erros de "setState() or markNeedsBuild() called during build".
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          // Garante que o widget ainda está na árvore.
+          final targetRoute = authState.isLoggedIn! ? '/home' : '/login';
+          Beamer.of(context).beamToReplacementNamed(targetRoute);
+        }
+      });
+    }
+
+    // 4. Enquanto a verificação não termina (ou durante o frame do redirecionamento),
+    //    a tela SEMPRE exibe o indicador de carregamento.
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 
@@ -506,3 +540,72 @@ class AccessDeniedScreen extends StatelessWidget {
     );
   }
 }
+
+// // main oficial
+// import 'package:flutter/material.dart';
+// import 'package:beamer/beamer.dart';
+// import 'package:provider/provider.dart';
+
+// import 'notifiers/auth_state.dart';
+// import 'utils/routes/app_location_beamer.dart';
+
+// void main() {
+//   runApp(
+//     ChangeNotifierProvider(create: (_) => AuthState(), child: const MyApp()),
+//   );
+// }
+
+// class MyApp extends StatefulWidget {
+//   const MyApp({super.key});
+//   @override
+//   State<MyApp> createState() => _MyAppState();
+// }
+
+// class _MyAppState extends State<MyApp> {
+//   late BeamerDelegate routerDelegate;
+//   List<String> get publicRoutes => ['/login', '/cadastro', '/esqueci-senha'];
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     final authState = context.read<AuthState>();
+
+//     routerDelegate = BeamerDelegate(
+//       locationBuilder: (routeInformation, _) => AppLocation(routeInformation),
+//       guards: [
+//         BeamGuard(
+//           pathPatterns: ['/pedidos', '/item'],
+//           check: (context, location) {
+//             final path = location.state.routeInformation.uri.path;
+
+//             // Se for pública, permite
+//             if (publicRoutes.contains(path.toString())) {
+//               return true;
+//             }
+//             // Se for privada, verifica login
+//             return authState.isLoggedIn;
+//           },
+//           beamToNamed: (origin, target) {
+//             if (authState.isLoggedIn) {
+//               return target.state.routeInformation.uri.path;
+//             }
+
+//             return '/login';
+//           },
+//         ),
+//       ],
+//     );
+
+//     authState.addListener(routerDelegate.update);
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp.router(
+//       debugShowCheckedModeBanner: false,
+//       title: 'Beamer',
+//       routeInformationParser: BeamerParser(),
+//       routerDelegate: routerDelegate,
+//     );
+//   }
+// }
